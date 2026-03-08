@@ -1,16 +1,10 @@
 # Queens Solver
-## TODO:
-- How to store a puzzle
--- Dimensions
--- Cell State
--- Regions
 - UI
--- Pure HTML?
---- Direct Dom malipulation by cell ID
+-- Pure HTML+CSS+JS
+## TODO:
 - Loader
 -- Image reading
---- I want to do this in pure JS with no libraries if possible.
----- Draw to a canvas and read pixels? Is this needed?
+--- Possibly determine the border color in another way to support more substantially incorrect formats
 - Solver
 -- Rules System Eval Loop
 -- Basic Rules blocking (No same row, column, or region)
