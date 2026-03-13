@@ -29,6 +29,49 @@ function index(x, y) {
   return y * puzzle.scale + x;
 }
 
+// ---- Utility Functions ----
+
+function isBlocked(index, p = puzzle) {
+  if (p.cellStates[index] === CellState.QUEEN) return false;
+  if (p.cellStates[index] === CellState.BLOCKED) return true;
+  const [x,y] = indexToXY(index);
+  for (let i = 0; i < p.scale; i++) {
+    if(i!==x && p.cellStates[y*p.scale+i] === CellState.QUEEN) return true;
+    if(i!==y && p.cellStates[i*p.scale+x] === CellState.QUEEN) return true;
+  }
+  for (let i = 0; i < 4; i++) {
+    if((oX = x+(Math.floor(i/2)*2)-1) >= 0 && oX < p.scale
+      && (oY = y+(i%2*2)-1) >= 0 && oY < p.scale
+      && p.cellStates[oY*p.scale+oX] === CellState.QUEEN
+    ) return true;
+  }
+  return p.cellRegionIds.some(
+    (val, i) => 
+      i !== index
+      && val === p.cellRegionIds[index]
+      && p.cellStates[i] === CellState.QUEEN
+  );
+}
+
+function isValid(p = puzzle) {
+  const found = {};
+  if (!p.cellStates.some((state, i) => {
+    if (state === CellState.QUEEN) {
+      const [x,y] = indexToXY(i);
+      if(found['col'+x] || found['row'+y] || found['reg'+p.cellRegionIds[i]]) {
+        return true;
+      }
+      found['col'+x] = found['row'+y] = found['reg'+p.cellRegionIds[i]] = true;
+    }
+  })){
+    return false;
+  }
+}
+
+function indexToXY(i) {
+  return [i%puzzle.scale, Math.floor(i/puzzle.scale)];
+}
+
 // ---- Rendering ----
 
 function renderBoard() {
@@ -139,11 +182,25 @@ function setCell(i, value) {
 // ---- Solver Hooks ----
 
 function solveStep() {
-  console.log("Solver step not implemented yet");
-  // later:
-  // - evaluate rules
-  // - mark forced blocks
-  // - place queens
+  const shouldBeBlocked = [];
+  for (let i = 0; i < puzzle.scale ** 2; i++) {
+    if (puzzle.cellStates[i] === CellState.EMPTY) {
+      const tempPuzzle = JSON.parse(JSON.stringify(puzzle));
+      tempPuzzle.cellStates[i] = CellState.QUEEN;
+      const blockedSet = tempPuzzle.cellStates.map((_, a) => isBlocked(a, tempPuzzle));
+      const validCellCount = {};
+      blockedSet.forEach((val, j) => {
+        const [x,y] = indexToXY(j);
+        validCellCount['col'+x] = (validCellCount['col'+x] ?? 0) + (val ? 0 : 1);
+        validCellCount['row'+y] = (validCellCount['row'+y] ?? 0) + (val ? 0 : 1);
+        validCellCount[(key = 'reg'+tempPuzzle.cellRegionIds[j])] = (validCellCount[key] ?? 0) + (val ? 0 : 1);
+      })
+      if (Object.values(validCellCount).some(a=>a===0)){
+        shouldBeBlocked.push(i);
+      }
+    }
+  }
+  shouldBeBlocked.forEach(val => setCell(val, CellState.BLOCKED));
 }
 
 function resetPuzzle() {
@@ -173,7 +230,6 @@ async function loadFromImage() {
       pixels[offset + 2]
     );
   };
-  // debugger;
   const corner = getPixel(0, 0);
   let top = 0,
     bottom = 0,
