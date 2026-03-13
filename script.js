@@ -2,8 +2,10 @@
 
 const CellState = {
   EMPTY: 0,
+  WILL_BLOCK: 0.5,
   BLOCKED: 1,
   QUEEN: 2,
+  EVIL_QUEEN: 3,
 };
 
 let puzzle = {
@@ -96,19 +98,23 @@ function renderBoard() {
       );
       setBorders(cell, x, y);
 
-      applyCellState(cell, puzzle.cellStates[i]);
+      applyCellState(cell, isBlocked(index(x,y)) | puzzle.cellStates[i]);
 
       cell.addEventListener("mousedown", () => {
         isDragging = true;
       });
       cell.addEventListener("mouseup", () => {
         cycleCell(i);
+        puzzle.cellStates = puzzle.cellStates.map(Math.round);
+        puzzle.cellStates.forEach((_,i) => updateCell(i));
       });
-      cell.addEventListener("mouseleave", () => {
+      const addWillBlock = () => {
         if (puzzle.cellStates[i] === CellState.EMPTY && isDragging) {
-          setCell(i, CellState.BLOCKED);
+          setCell(i, CellState.WILL_BLOCK);
         }
-      });
+      }
+      cell.addEventListener("mouseleave", addWillBlock);
+      cell.addEventListener("mouseenter", addWillBlock);
 
       board.appendChild(cell);
     }
@@ -151,28 +157,30 @@ function setBorders(cell, x, y) {
 function applyCellState(cellEl, state) {
   cellEl.classList.remove("empty", "queen", "blocked");
   cellEl.innerHTML = "";
-
   if (state === CellState.EMPTY) {
     cellEl.classList.add("empty");
-  } else if (state === CellState.QUEEN) {
-    cellEl.classList.add("queen");
-    cellEl.innerHTML = "♕";
-  } else if (state === CellState.BLOCKED) {
+  } else if (state === CellState.BLOCKED || state === CellState.WILL_BLOCK) {
     cellEl.classList.add("blocked");
     cellEl.innerHTML = "×";
+  } else {
+    cellEl.classList.add("queen");
+    cellEl.innerHTML = "♕";
   }
+  cellEl.style.color = state === CellState.EVIL_QUEEN ? 'red' : null;
 }
 
 function updateCell(index) {
   const cellEl = document.querySelector(`.cell[data-index="${index}"]`);
-  applyCellState(cellEl, puzzle.cellStates[index]);
+  applyCellState(cellEl, isBlocked(index) | Math.ceil(puzzle.cellStates[index]));
 }
 
 // ---- Interaction ----
 
 function cycleCell(i) {
-  puzzle.cellStates[i] = (puzzle.cellStates[i] + 1) % 3;
-  updateCell(i);
+  puzzle.cellStates[i] = isBlocked(i)
+    ? (puzzle.cellStates[i] === 2 ? 0 : 2)
+    : (Math.round(puzzle.cellStates[i] + 0.9) % 3);
+  puzzle.cellStates.forEach((_,i) => updateCell(i));
 }
 function setCell(i, value) {
   puzzle.cellStates[i] = value;
