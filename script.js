@@ -92,7 +92,7 @@ function isValid(p) {
     return false;
   };
   return !isBlockedUp(p);
-  }
+}
 
 function enoughQueens(p) {
   return p.cellStates.reduce((sum, state) => sum + (state===CellState.QUEEN), 0) === p.scale;
@@ -266,16 +266,16 @@ function solveStep(p) {
     return Object.keys(shouldBeAQueen);
   }
   function getBreakingPositions() {
-  const shouldBeBlocked = [];
+    const shouldBeBlocked = [];
     for (let i = 0; i < p.scale ** 2; i++) {
       if (p.cellStates[i] === CellState.EMPTY) {
         const tempPuzzle = deepCopy(p);
-      tempPuzzle.cellStates[i] = CellState.QUEEN;
+        tempPuzzle.cellStates[i] = CellState.QUEEN;
         if (isBlockedUp(tempPuzzle)) {
-        shouldBeBlocked.push(i);
+          shouldBeBlocked.push(i);
+        }
       }
     }
-  }
     return shouldBeBlocked;
   }
   getMustHaveQueen().forEach(val => p.cellStates[val] = CellState.QUEEN);
@@ -386,24 +386,49 @@ async function loadFromImage() {
     .map((_, i) => {
       const col = i % scale,
         row = Math.floor(i / scale);
-      const pixel = getPixel(
-        Math.floor(((col + 0.5) * (width - left - right)) / scale) + left,
-        Math.floor(((row + 0.5) * (height - top - bottom)) / scale) + top,
+      function getOffsetPixel(x, y) {
+        return getPixel(
+        Math.floor(((col + x) * (width - left - right)) / scale) + left,
+        Math.floor(((row + y) * (height - top - bottom)) / scale) + top,
       );
-      return entries.reduce(
-        (best, curr, i) =>
-          (dist = sqrDist(curr[0], pixel)) < best[1] ? [i, dist] : best,
-        [-1, Number.MAX_VALUE],
-      )[0];
+      }
+      const counts = {};
+      [
+        getOffsetPixel(0.25,0.25),
+        getOffsetPixel(0.25,0.5),
+        getOffsetPixel(0.25,0.75),
+        getOffsetPixel(0.5,0.25),
+        getOffsetPixel(0.5,0.5),
+        getOffsetPixel(0.5,0.75),
+        getOffsetPixel(0.75,0.25),
+        getOffsetPixel(0.75,0.5),
+        getOffsetPixel(0.75,0.75),
+      ].forEach(pixel => {
+        let bestIdx = 0, bestDist = Infinity;
+        entries.forEach(([key], i) => {
+          const d = sqrDist(Number(key), pixel);
+          if (d < bestDist) { bestDist = d; bestIdx = i; }
+        });
+        counts[bestIdx] = (counts[bestIdx] ?? 0) + 1;
+      });
+
+      return Number(Object.entries(counts).reduce(
+        (best, [k, v]) => v > best[1] ? [k, v] : best,
+        [0, -1]
+      )[0]);
     });
+  
+  const impliedBorder = regionColors.find((_, i) => !cellRegionIds.some(a => a === i));
 
   configurePuzzle(
     scale,
     cellRegionIds,
     regionColors,
-    parseInt(border ?? "15658734")
-      .toString(16)
-      .padStart(6, "0"),
+    (border || !impliedBorder)
+      ? parseInt(border ?? "15658734")
+        .toString(16)
+        .padStart(6, "0")
+      : impliedBorder,
   );
   renderBoard();
 }
