@@ -33,8 +33,7 @@ function index(x, y) {
 
 // ---- Utility Functions ----
 
-function isBlocked(index, p = puzzle) {
-  if (p.cellStates[index] === CellState.QUEEN) return false;
+function isBlocked(index, p) {
   if (p.cellStates[index] === CellState.BLOCKED) return true;
   const [x,y] = indexToXY(index);
   for (let i = 0; i < p.scale; i++) {
@@ -42,8 +41,9 @@ function isBlocked(index, p = puzzle) {
     if(i!==y && p.cellStates[i*p.scale+x] === CellState.QUEEN) return true;
   }
   for (let i = 0; i < 4; i++) {
-    if((oX = x+(Math.floor(i/2)*2)-1) >= 0 && oX < p.scale
-      && (oY = y+(i%2*2)-1) >= 0 && oY < p.scale
+    const oX = x+(Math.floor(i/2)*2)-1, oY = y+(i%2*2)-1;
+    if(oX >= 0 && oX < p.scale
+      && oY >= 0 && oY < p.scale
       && p.cellStates[oY*p.scale+oX] === CellState.QUEEN
     ) return true;
   }
@@ -55,19 +55,47 @@ function isBlocked(index, p = puzzle) {
   );
 }
 
-function isValid(p = puzzle) {
+const deepCopy = (x) => JSON.parse(JSON.stringify(x));
+
+function isBlockedUp(p) {
+  const blockedSet = p.cellStates.map((_, a) => isBlocked(a, p));
+  const validCellCount = {};
+  blockedSet.forEach((val, i) => {
+    const [x, y] = indexToXY(i);
+    validCellCount['col' + x] = (validCellCount['col' + x] ?? 0) + (val ? 0 : 1);
+    validCellCount['row' + y] = (validCellCount['row' + y] ?? 0) + (val ? 0 : 1);
+    const key = 'reg' + p.cellRegionIds[i];
+    validCellCount[key] = (validCellCount[key] ?? 0) + (val ? 0 : 1);
+  });
+  return Object.values(validCellCount).some(a => a === 0);
+}
+
+function isValid(p) {
   const found = {};
-  if (!p.cellStates.some((state, i) => {
+  if (p.cellStates.some((state, i) => {
     if (state === CellState.QUEEN) {
       const [x,y] = indexToXY(i);
-      if(found['col'+x] || found['row'+y] || found['reg'+p.cellRegionIds[i]]) {
+      if(
+        found['col'+x]
+        || found['row'+y]
+        || found['reg'+p.cellRegionIds[i]]
+        || (y>0 && (
+          (x>0 && p.cellStates[i-p.scale-1] === CellState.QUEEN)
+          || (x<(p.scale-1) && p.cellStates[i-p.scale+1] === CellState.QUEEN)
+        ))
+      ) {
         return true;
       }
       found['col'+x] = found['row'+y] = found['reg'+p.cellRegionIds[i]] = true;
     }
-  })){
+  })) {
     return false;
+  };
+  return !isBlockedUp(p);
   }
+
+function enoughQueens(p) {
+  return p.cellStates.reduce((sum, state) => sum + (state===CellState.QUEEN), 0) === p.scale;
 }
 
 function indexToXY(i) {
@@ -98,7 +126,7 @@ function renderBoard() {
       );
       setBorders(cell, x, y);
 
-      applyCellState(cell, isBlocked(index(x,y)) | puzzle.cellStates[i]);
+      applyCellState(cell, +isBlocked(index(x,y), puzzle) | puzzle.cellStates[i]);
 
       cell.addEventListener("mousedown", () => {
         isDragging = true;
@@ -106,7 +134,7 @@ function renderBoard() {
       cell.addEventListener("mouseup", () => {
         cycleCell(i);
         puzzle.cellStates = puzzle.cellStates.map(Math.round);
-        puzzle.cellStates.forEach((_,i) => updateCell(i));
+        rerender(puzzle);
       });
       const addWillBlock = () => {
         if (puzzle.cellStates[i] === CellState.EMPTY && isDragging) {
@@ -171,16 +199,20 @@ function applyCellState(cellEl, state) {
 
 function updateCell(index) {
   const cellEl = document.querySelector(`.cell[data-index="${index}"]`);
-  applyCellState(cellEl, isBlocked(index) | Math.ceil(puzzle.cellStates[index]));
+  applyCellState(cellEl, +isBlocked(index, puzzle) | Math.ceil(puzzle.cellStates[index]));
+}
+
+function rerender(p) {
+  p.cellStates.forEach((_,i) => updateCell(i));
 }
 
 // ---- Interaction ----
 
 function cycleCell(i) {
-  puzzle.cellStates[i] = isBlocked(i)
-    ? (puzzle.cellStates[i] === 2 ? 0 : 2)
+  puzzle.cellStates[i] = isBlocked(i, puzzle)
+    ? (puzzle.cellStates[i] === CellState.QUEEN ? CellState.EMPTY : CellState.QUEEN)
     : (Math.round(puzzle.cellStates[i] + 0.9) % 3);
-  puzzle.cellStates.forEach((_,i) => updateCell(i));
+  rerender(puzzle);
 }
 function setCell(i, value) {
   puzzle.cellStates[i] = value;
@@ -189,26 +221,65 @@ function setCell(i, value) {
 
 // ---- Solver Hooks ----
 
-function solveStep() {
+function solve(p) {
+  let last = null, curr = null;
+  while (last !== (curr = JSON.stringify(p.cellStates))) {
+    last = curr;
+    solveStep(p);
+  }
+  if (!isValid(p)){
+    return false;
+  }
+  if (!enoughQueens(p)){
+    while (p.cellStates.some(a => a === CellState.EMPTY)) {
+      const copy = deepCopy(p)
+      const firstSpace = copy.cellStates.findIndex(a => a === CellState.EMPTY);
+      copy.cellStates[firstSpace] = CellState.QUEEN;
+      if (solve(copy) !== false) {
+        p.cellStates[firstSpace] = CellState.QUEEN;
+        return solve(p);
+      }
+      p.cellStates[firstSpace] = CellState.BLOCKED;
+    }
+    return false;
+  }
+  return p;
+}
+
+function solveStep(p) {
+  function getMustHaveQueen() {
+    const shouldBeAQueen = {}, validCellCount = {};
+    const blockedSet = p.cellStates.map((_, a) => isBlocked(a, p));
+    for (let i = 0; i < p.scale ** 2; i++) {
+      if (p.cellStates[i] === CellState.EMPTY) {
+        const val = blockedSet[i];
+        const [x, y] = indexToXY(i);
+        validCellCount['col' + x] = [...(validCellCount['col' + x] ?? []), ...(val ? [] : [i])];
+        validCellCount['row' + y] = [...(validCellCount['row' + y] ?? []), ...(val ? [] : [i])];
+        const key = 'reg' + p.cellRegionIds[i];
+        validCellCount[key] = [...(validCellCount[key] ?? []), ...(val ? [] : [i])];
+      }
+    }
+    Object.values(validCellCount).filter(a => a.length === 1).forEach(a => {
+      shouldBeAQueen[a[0]] = true;
+    })
+    return Object.keys(shouldBeAQueen);
+  }
+  function getBreakingPositions() {
   const shouldBeBlocked = [];
-  for (let i = 0; i < puzzle.scale ** 2; i++) {
-    if (puzzle.cellStates[i] === CellState.EMPTY) {
-      const tempPuzzle = JSON.parse(JSON.stringify(puzzle));
+    for (let i = 0; i < p.scale ** 2; i++) {
+      if (p.cellStates[i] === CellState.EMPTY) {
+        const tempPuzzle = deepCopy(p);
       tempPuzzle.cellStates[i] = CellState.QUEEN;
-      const blockedSet = tempPuzzle.cellStates.map((_, a) => isBlocked(a, tempPuzzle));
-      const validCellCount = {};
-      blockedSet.forEach((val, j) => {
-        const [x,y] = indexToXY(j);
-        validCellCount['col'+x] = (validCellCount['col'+x] ?? 0) + (val ? 0 : 1);
-        validCellCount['row'+y] = (validCellCount['row'+y] ?? 0) + (val ? 0 : 1);
-        validCellCount[(key = 'reg'+tempPuzzle.cellRegionIds[j])] = (validCellCount[key] ?? 0) + (val ? 0 : 1);
-      })
-      if (Object.values(validCellCount).some(a=>a===0)){
+        if (isBlockedUp(tempPuzzle)) {
         shouldBeBlocked.push(i);
       }
     }
   }
-  shouldBeBlocked.forEach(val => setCell(val, CellState.BLOCKED));
+    return shouldBeBlocked;
+  }
+  getMustHaveQueen().forEach(val => p.cellStates[val] = CellState.QUEEN);
+  getBreakingPositions().forEach(val => p.cellStates[val] = CellState.BLOCKED);
 }
 
 function resetPuzzle() {
@@ -232,8 +303,9 @@ async function loadFromImage() {
   const { width, height, pixels } = await uploadImage();
 
   const getPixel = (x, y) => {
+    const offset = 4 * (y * width + x);
     return (
-      (pixels[(offset = 4 * (y * width + x))] << 16) |
+      (pixels[offset] << 16) |
       (pixels[offset + 1] << 8) |
       pixels[offset + 2]
     );
@@ -279,7 +351,8 @@ async function loadFromImage() {
   const counts = {};
   for (let y = top; y < height - bottom - 1; y++) {
     for (let x = left; x < width - right - 1; x++) {
-      counts[(pixel = getPixel(x, y))] = (counts[pixel] ?? 0) + 1;
+      const pixel = getPixel(x, y);
+      counts[pixel] = (counts[pixel] ?? 0) + 1;
     }
   }
 
@@ -373,7 +446,8 @@ function uploadImage() {
 
 // ---- Startup ----
 
-document.getElementById("solveBtn").addEventListener("click", solveStep);
+document.getElementById("solveBtn").addEventListener("click", () => {solve(puzzle); rerender(puzzle);});
+document.getElementById("solveStepBtn").addEventListener("click", () => {solveStep(puzzle); rerender(puzzle);});
 document.getElementById("resetBtn").addEventListener("click", resetPuzzle);
 document.getElementById("loadBtn").addEventListener("click", loadFromImage);
 
